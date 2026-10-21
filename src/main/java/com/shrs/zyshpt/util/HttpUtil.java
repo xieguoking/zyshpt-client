@@ -6,22 +6,25 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * 轻量 HTTP 客户端（基于 JDK 自带 HttpURLConnection，零第三方依赖）。
  *
- * <p>支持 GET / POST(JSON) / POST(form)，统一 UTF-8 编码，默认超时：连接 10s、读取 30s。</p>
+ * <p>既支持文本（GET / POST JSON / POST form），也支持二进制 Body 与响应头读取（网关加密报文用）。
+ * 统一 UTF-8 编码，默认超时：连接 10s、读取 30s。</p>
  */
 public final class HttpUtil {
 
@@ -30,6 +33,7 @@ public final class HttpUtil {
 
     public static final String CONTENT_TYPE_JSON = "application/json;charset=UTF-8";
     public static final String CONTENT_TYPE_FORM = "application/x-www-form-urlencoded;charset=UTF-8";
+    public static final String CONTENT_TYPE_OCTET_STREAM = "application/octet-stream";
 
     private static volatile boolean trustAll = false;
     private static volatile SSLSocketFactory trustAllFactory;
@@ -42,24 +46,22 @@ public final class HttpUtil {
         HttpUtil.trustAll = trustAll;
     }
 
-    // ==================== GET ====================
+    // ==================== 文本请求 ====================
 
     public static String get(String url) throws IOException {
         return get(url, null);
     }
 
     public static String get(String url, Map<String, String> headers) throws IOException {
-        return execute(url, "GET", null, null, headers);
+        return execute(url, "GET", headers, null).bodyText();
     }
-
-    // ==================== POST ====================
 
     public static String postJson(String url, String json) throws IOException {
         return postJson(url, json, null);
     }
 
     public static String postJson(String url, String json, Map<String, String> headers) throws IOException {
-        return execute(url, "POST", CONTENT_TYPE_JSON, json, headers);
+        return postText(url, CONTENT_TYPE_JSON, json, headers);
     }
 
     public static String postForm(String url, Map<String, String> form) throws IOException {
@@ -67,12 +69,19 @@ public final class HttpUtil {
     }
 
     public static String postForm(String url, Map<String, String> form, Map<String, String> headers) throws IOException {
-        return execute(url, "POST", CONTENT_TYPE_FORM, encodeForm(form), headers);
+        return postText(url, CONTENT_TYPE_FORM, encodeForm(form), headers);
+    }
+
+    // ==================== 二进制请求（网关加密报文） ====================
+
+    /** POST 二进制 Body，返回含响应头的 Response（网关客户端使用） */
+    public static Response post(String url, Map<String, String> headers, byte[] body) throws IOException {
+        return execute(url, "POST", headers, body);
     }
 
     /** 通用请求：非 2xx 响应抛出 IOException（携带状态码与响应体） */
-    public static String execute(String url, String method, String contentType,
-                                 String body, Map<String, String> headers) throws IOException {
+    public static Response execute(String url, String method, Map<String, String> headers,
+                                   byte[] body) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         try {
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -86,29 +95,66 @@ public final class HttpUtil {
             applyTrustAllIfNeeded(conn);
             if (body != null) {
                 conn.setDoOutput(true);
-                if (contentType != null) {
-                    conn.setRequestProperty("Content-Type", contentType);
-                }
-                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                conn.setFixedLengthStreamingMode(bytes.length);
+                conn.setFixedLengthStreamingMode(body.length);
                 OutputStream os = conn.getOutputStream();
                 try {
-                    os.write(bytes);
+                    os.write(body);
                     os.flush();
                 } finally {
                     os.close();
                 }
             }
             int code = conn.getResponseCode();
+            Map<String, List<String>> respHeaders = conn.getHeaderFields();
             InputStream in = code < 400 ? conn.getInputStream() : conn.getErrorStream();
-            String respBody = in == null ? "" : readAll(in);
+            byte[] respBody = in == null ? new byte[0] : readAll(in);
             if (code >= 400) {
-                throw new IOException("HTTP " + code + " " + conn.getResponseMessage() + ": " + respBody);
+                throw new IOException("HTTP " + code + " " + conn.getResponseMessage() + ": "
+                        + new String(respBody, StandardCharsets.UTF_8));
             }
-            return respBody;
+            return new Response(code, respBody, respHeaders);
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** HTTP 响应：状态码、响应头、原始 Body */
+    public static class Response {
+        public final int code;
+        public final byte[] body;
+        private final Map<String, List<String>> headers;
+
+        Response(int code, byte[] body, Map<String, List<String>> headers) {
+            this.code = code;
+            this.body = body;
+            this.headers = headers;
+        }
+
+        /** 按名称取响应头（大小写不敏感），不存在返回 null */
+        public String header(String name) {
+            for (Map.Entry<String, List<String>> e : headers.entrySet()) {
+                if (e.getKey() != null && e.getKey().equalsIgnoreCase(name) && !e.getValue().isEmpty()) {
+                    return e.getValue().get(0);
+                }
+            }
+            return null;
+        }
+
+        public String bodyText() {
+            return new String(body, StandardCharsets.UTF_8);
+        }
+    }
+
+    // ==================== 内部工具 ====================
+
+    private static String postText(String url, String contentType, String body,
+                                   Map<String, String> headers) throws IOException {
+        Map<String, String> all = new LinkedHashMap<String, String>();
+        if (headers != null) {
+            all.putAll(headers);
+        }
+        all.put("Content-Type", contentType);
+        return execute(url, "POST", all, body.getBytes(StandardCharsets.UTF_8)).bodyText();
     }
 
     private static String encodeForm(Map<String, String> form) {
@@ -133,7 +179,7 @@ public final class HttpUtil {
         }
     }
 
-    private static String readAll(InputStream in) throws IOException {
+    private static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[4096];
         int n;
@@ -141,7 +187,7 @@ public final class HttpUtil {
             bos.write(buf, 0, n);
         }
         in.close();
-        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        return bos.toByteArray();
     }
 
     private static void applyTrustAllIfNeeded(HttpURLConnection conn) {

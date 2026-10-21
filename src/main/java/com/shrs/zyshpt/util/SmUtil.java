@@ -10,8 +10,11 @@ import org.bouncycastle.crypto.digests.SM3Digest;
 import org.bouncycastle.crypto.engines.SM2Engine;
 import org.bouncycastle.crypto.engines.SM4Engine;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
+import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
+import org.bouncycastle.crypto.modes.GCMBlockCipher;
 import org.bouncycastle.crypto.paddings.PaddedBufferedBlockCipher;
+import org.bouncycastle.crypto.params.AEADParameters;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECKeyGenerationParameters;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
@@ -122,6 +125,54 @@ public final class SmUtil {
         } catch (InvalidCipherTextException e) {
             throw new IllegalStateException("SM4 " + (encrypt ? "加密" : "解密") + "失败", e);
         }
+    }
+
+    // ==================== SM4 GCM / CMAC（网关安全规范用） ====================
+
+    /** 生成随机字节 */
+    public static byte[] randomBytes(int length) {
+        byte[] bytes = new byte[length];
+        RANDOM.nextBytes(bytes);
+        return bytes;
+    }
+
+    /** SM4/GCM/NoPadding 加密（12 字节 IV、128 位认证标签），输出 = 密文 || 标签 */
+    public static byte[] sm4GcmEncrypt(byte[] key, byte[] iv, byte[] data) {
+        return sm4GcmProcess(true, key, iv, data);
+    }
+
+    /** SM4/GCM/NoPadding 解密，认证标签不匹配抛 IllegalStateException */
+    public static byte[] sm4GcmDecrypt(byte[] key, byte[] iv, byte[] data) {
+        return sm4GcmProcess(false, key, iv, data);
+    }
+
+    private static byte[] sm4GcmProcess(boolean encrypt, byte[] key, byte[] iv, byte[] data) {
+        if (key == null || key.length != 16) {
+            throw new IllegalArgumentException("SM4 密钥长度必须为 16 字节");
+        }
+        if (iv == null || iv.length != 12) {
+            throw new IllegalArgumentException("SM4 GCM 模式 iv 长度必须为 12 字节");
+        }
+        GCMBlockCipher gcm = new GCMBlockCipher(new SM4Engine());
+        gcm.init(encrypt, new AEADParameters(new KeyParameter(key), 128, iv));
+        try {
+            byte[] out = new byte[gcm.getOutputSize(data.length)];
+            int len = gcm.processBytes(data, 0, data.length, out, 0);
+            len += gcm.doFinal(out, len);
+            return Arrays.copyOf(out, len);
+        } catch (InvalidCipherTextException e) {
+            throw new IllegalStateException("SM4/GCM 解密失败（认证标签不匹配）", e);
+        }
+    }
+
+    /** SM4 CMAC（输出 16 字节），网关认证签名使用 */
+    public static byte[] sm4Cmac(byte[] key, byte[] data) {
+        CMac cmac = new CMac(new SM4Engine());
+        cmac.init(new KeyParameter(key));
+        byte[] out = new byte[cmac.getMacSize()];
+        cmac.update(data, 0, data.length);
+        cmac.doFinal(out, 0);
+        return out;
     }
 
     // ==================== SM2 非对称加解密 / 签名 ====================

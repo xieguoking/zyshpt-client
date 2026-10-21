@@ -4,6 +4,7 @@ import org.bouncycastle.util.encoders.Hex;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -56,5 +57,30 @@ public class SmUtilTest {
 
         sign[0] ^= 0x01; // 篡改签名
         assertFalse(SmUtil.sm2Verify(keyPair.get("publicKey"), data, sign));
+    }
+    @Test
+    public void sm4GcmRoundTripAndTamper() {
+        byte[] key = SmUtil.sm4Key();
+        byte[] iv = SmUtil.randomBytes(12);
+        byte[] data = "SM4 GCM 测试".getBytes(StandardCharsets.UTF_8);
+        byte[] cipher = SmUtil.sm4GcmEncrypt(key, iv, data);
+        assertArrayEquals(data, SmUtil.sm4GcmDecrypt(key, iv, cipher));
+        cipher[0] ^= 0x01; // 篡改密文
+        try {
+            SmUtil.sm4GcmDecrypt(key, iv, cipher);
+            throw new AssertionError("篡改后应解密失败");
+        } catch (IllegalStateException expected) {
+        }
+    }
+
+    @Test
+    public void sm4Cmac() {
+        byte[] key = "1234567890abcdef".getBytes(StandardCharsets.UTF_8);
+        byte[] msg = "nonce:2000026:1691128890979".getBytes(StandardCharsets.UTF_8);
+        byte[] mac = SmUtil.sm4Cmac(key, msg);
+        assertEquals(16, mac.length);
+        assertArrayEquals(mac, SmUtil.sm4Cmac(key, msg));
+        assertFalse(Arrays.equals(mac, SmUtil.sm4Cmac(key,
+                "nonce:2000026:1691128890980".getBytes(StandardCharsets.UTF_8))));
     }
 }
