@@ -10,20 +10,12 @@ JDK 1.8 轻量客户端工程：**国密（SM2/SM3/SM4）+ HTTP 接口调用**�
 | HTTP 调用 | JDK 自带 `HttpURLConnection` | 无 |
 | 单元测试 | JUnit 4（仅 test scope） | 不进产物 |
 
-> 国内网络拉取依赖慢时，可在 `~/.m2/settings.xml` 配置阿里云镜像：
-> ```xml
-> <mirror>
->   <id>aliyun</id>
->   <mirrorOf>central</mirrorOf>
->   <url>https://maven.aliyun.com/repository/public</url>
-> </mirror>
-> ```
-
 ## 快速开始
 
 ```bash
-mvn test        # 14 个单测：国标向量 + HTTP 回环 + 网关客户端全链路
-mvn exec:java   # 运行 Main：客户端 <-> 本地 Mock 网关 完整加解密/验签链路演示
+mvn test        # 全部单测：国标向量 + HTTP 回环 + 网关全链路 + 命令行参数解析
+mvn exec:java   # GatewayMain 命令行入口（无参数时列出缺失必填项并打印用法）
+mvn -q compile exec:java -Dexec.mainClass=com.shrs.zyshpt.demo.GatewayRoundTripDemo  # 免凭证全链路演示
 ```
 
 ## 国密用法
@@ -80,6 +72,19 @@ String resp = client.call(apiid, "{\"name\":\"xieguojun\"}");  // 传 JSON 明�
 （签名 = `Base64(SM4CMAC(uuid:appKey:timestamp))`，密钥取 appSecret 前 16 字节不足补零）。
 应答先验签再解密；认证失败网关返回 401/403，将以 IOException（含响应体）抛出。
 
+命令行调用（`GatewayMain`，缺必填参数会列出全部缺失项并打印用法，退出码 1；调用失败退出码 2）：
+
+```bash
+mvn -q compile exec:java -Dexec.args='--url https://openapi.rsj.sh.gov.cn \
+  --app-key 2000026 --app-secret <AppSecret> \
+  --server-public-key <服务端SM2公钥hex> --client-private-key <客户端SM2私钥hex> \
+  --apiid <接口ID> --payload "{\"name\":\"xieguojun\"}"'
+```
+
+- 必填：`--url`、`--app-key`、`--app-secret`、`--server-public-key`、`--client-private-key`
+- 可选（未输入取默认值）：`--apiid`（默认 `b120b58edde14c2c9e10f9e553034887`）、`--payload`（默认 `{"name":"xieguojun"}`）、`--trust-all`（默认 `false`，自签名 HTTPS 环境跳过证书校验）
+- 写法支持 `--name value` 与 `--name=value`，`--help` 查看完整用法
+
 对接约定（与平台联调时的核对点）：
 
 - `x-shdata-signture` 按规范原文拼写（非 signature）；Header 名大小写不敏感
@@ -91,10 +96,10 @@ String resp = client.call(apiid, "{\"name\":\"xieguojun\"}");  // 传 JSON 明�
 
 ```
 src/main/java/com/shrs/zyshpt
-├── Main.java              # main 入口：Mock 网关完整链路演示
+├── GatewayMain.java       # 命令行入口（必填/可选参数解析）
 ├── client/GatewayClient.java  # 网关安全客户端（规范 2.1~2.4 全量实现）
 ├── mock/MockGateway.java      # 本地模拟网关（自测/联调用）
-├── demo/                      # 国密 / HTTP 基础用法示例
+├── demo/                      # 示例：国密、HTTP、免凭证网关全链路演示
 └── util/
     ├── SmUtil.java        # SM2/SM3/SM4（含 GCM、CMAC）
     └── HttpUtil.java      # 轻量 HTTP 客户端（文本 + 二进制）

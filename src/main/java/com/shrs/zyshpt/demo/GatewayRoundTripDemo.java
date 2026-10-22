@@ -1,4 +1,4 @@
-package com.shrs.zyshpt;
+package com.shrs.zyshpt.demo;
 
 import com.shrs.zyshpt.client.GatewayClient;
 import com.shrs.zyshpt.mock.MockGateway;
@@ -7,14 +7,11 @@ import com.shrs.zyshpt.util.SmUtil;
 import java.util.Map;
 
 /**
- * 入口演示：本地 Mock 网关完整链路（客户端加密/签名 -> 网关验签/解密 -> 应答加密 -> 客户端验签/解密）。
- * 对接真实平台时，将 GatewayClient 指向正式地址并使用线下交换的密钥，例如：
- * <pre>
- * new GatewayClient("https://openapi.rsj.sh.gov.cn", appKey, appSecret, 服务端SM2公钥, 客户端SM2私钥)
- *         .call(apiid, "{\"name\":\"xieguojun\"}");
- * </pre>
+ * 本地 Mock 网关完整链路演示（无需任何参数与凭证）：
+ * 客户端加密/签名 -> 网关验签/解密 -> 应答加密 -> 客户端验签/解密。
+ * 正式调用请使用 com.shrs.zyshpt.GatewayMain。
  */
-public class Main {
+public class GatewayRoundTripDemo {
 
     public static void main(String[] args) throws Exception {
         // 演示密钥对：真实对接时由双方各自生成 SM2 密钥对并交换公钥

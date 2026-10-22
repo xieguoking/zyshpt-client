@@ -60,4 +60,10 @@ public class GatewayClientTest {
             assertTrue(e.getMessage(), e.getMessage().contains("401"));
         }
     }
+    @Test
+    public void urlTrailingSlashTolerated() throws IOException {
+        GatewayClient withSlash = new GatewayClient("http://127.0.0.1:" + gateway.port() + "/",
+                "2000026", "demo-app-secret", serverPublicKey, clientPrivateKey);
+        assertEquals("{}", withSlash.call("api1", "{}"));
+    }
 }

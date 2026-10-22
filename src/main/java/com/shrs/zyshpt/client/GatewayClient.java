@@ -56,8 +56,9 @@ public class GatewayClient {
         headers.put("x-shdata-secret", Base64.getEncoder().encodeToString(secret));
         headers.put("x-shdata-signture", Base64.getEncoder().encodeToString(signature)); // 规范原文即此拼写
 
-        // 4. 发送并处理应答（先验签后解密）
-        HttpUtil.Response resp = HttpUtil.post(baseUrl + "/" + apiid, headers, ciphertext);
+        // 4. 发送并处理应答（先验签后解密）；容忍地址末尾多余的 '/'
+        String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        HttpUtil.Response resp = HttpUtil.post(base + "/" + apiid, headers, ciphertext);
         String sign = resp.header("x-shdata-signture");
         if (sign == null || resp.header("x-shdata-iv") == null || resp.header("x-shdata-secret") == null) {
             throw new IOException("应答缺少 x-shdata-* 安全头");
