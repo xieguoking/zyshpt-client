@@ -10,13 +10,15 @@
     <packaging>jar</packaging>
 
     <name>zyshpt-client</name>
-    <description>JDK 1.8 客户端：国密 SM2/SM3/SM4 + 轻量 HTTP 接口调用</description>
+    <description>Java 17 客户端：国密 SM2/SM3/SM4、轻量 HTTP 接口调用和 JavaFX 网关客户端</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
         <bcprov.version>1.78.1</bcprov.version>
+        <javafx.version>17.0.2</javafx.version>
+        <!-- JavaFX 平台 classifier：默认按构建机解析，可用 -Djavafx.classifier=win 覆盖 -->
+        <javafx.classifier>mac-aarch64</javafx.classifier>
+        <maven.compiler.release>17</maven.compiler.release>
     </properties>
 
     <dependencies>
@@ -25,6 +27,18 @@
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk15to18</artifactId>
             <version>${bcprov.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>${javafx.classifier}</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>${javafx.classifier}</classifier>
         </dependency>
         <!-- 仅单元测试 -->
         <dependency>
@@ -36,15 +50,92 @@
     </dependencies>
 
     <build>
+        <finalName>dist/zyshpt-client</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <release>${maven.compiler.release}</release>
                     <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <!-- 命令行入口；GUI 请用 run.sh / run.bat（JavaFX 必须在 module-path 上） -->
+                            <mainClass>com.shrs.zyshpt.GatewayMain</mainClass>
+                            <addClasspath>true</addClasspath>
+                            <classpathPrefix>libs/</classpathPrefix>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-dist-scripts</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/dist</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.7.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-javafx-modules</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeGroupIds>org.openjfx</includeGroupIds>
+                            <includeScope>runtime</includeScope>
+                            <outputDirectory>${project.build.directory}/dist/javafx</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-libs</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <excludeGroupIds>org.openjfx,junit</excludeGroupIds>
+                            <includeScope>runtime</includeScope>
+                            <outputDirectory>${project.build.directory}/dist/libs</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <version>0.0.8</version>
+                <configuration>
+                    <mainClass>com.shrs.zyshpt.GatewayFxApp</mainClass>
                 </configuration>
             </plugin>
             <plugin>
@@ -57,4 +148,55 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- 按构建机操作系统自动选择 JavaFX 原生库平台 -->
+    <profiles>
+        <profile>
+            <id>javafx-windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <javafx.classifier>win</javafx.classifier>
+            </properties>
+        </profile>
+        <profile>
+            <id>javafx-mac-aarch64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javafx.classifier>mac-aarch64</javafx.classifier>
+            </properties>
+        </profile>
+        <profile>
+            <id>javafx-mac-x64</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                    <arch>x86_64</arch>
+                </os>
+            </activation>
+            <properties>
+                <javafx.classifier>mac</javafx.classifier>
+            </properties>
+        </profile>
+        <profile>
+            <id>javafx-linux</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <name>Linux</name>
+                </os>
+            </activation>
+            <properties>
+                <javafx.classifier>linux</javafx.classifier>
+            </properties>
+        </profile>
+    </profiles>
 </project>

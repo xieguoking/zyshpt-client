@@ -18,6 +18,73 @@ mvn exec:java   # GatewayMain 命令行入口（无参数时列出缺失必填�
 mvn -q compile exec:java -Dexec.mainClass=com.shrs.zyshpt.demo.GatewayRoundTripDemo  # 免凭证全链路演示
 ```
 
+## JavaFX 网关客户端
+
+使用 JDK 17+ 启动图形界面：
+
+```bash
+mvn javafx:run
+```
+
+界面支持配置完整接口 URL（程序自动拆分为 `GatewayClient` 需要的 `baseUrl + apiid`）、
+请求参数 JSON 明文、客户端 SM2 私钥、服务端 SM2 公钥、`AppKey/SecretKey`，
+并可勾选是否忽略 HTTPS 证书校验。请求在后台线程执行，结果区显示解密后的网关应答和耗时。
+
+## 打包与分发
+
+```bash
+mvn package
+```
+
+`mvn package` 直接产出免安装目录 `target/dist/`：
+
+```
+target/dist/
+├── zyshpt-client.jar      # 应用主 JAR（manifest Main-Class = GatewayMain）
+├── javafx/                # JavaFX 模块（放 module-path）
+├── libs/                  # 其它运行期依赖（BouncyCastle）
+├── run.sh                 # Linux/macOS GUI 启动脚本
+└── run.bat                # Windows GUI 启动脚本
+```
+
+> **注意：dist 目录是平台相关的**——`javafx/` 内含目标平台的原生图形库（DLL/dylib/so），
+> 不能跨平台混用。pom 已按构建机操作系统自动选择（Windows→win、macOS arm→mac-aarch64、
+> macOS Intel→mac、Linux→linux）。若需要在 macOS 上打 Windows 包，可显式指定：
+>
+> ```bash
+> mvn -Djavafx.classifier=win package
+> ```
+
+使用方式（分发机器只需 JDK 17+，无需 Maven）：
+
+```bash
+# GUI：解压/拷贝 dist 目录后执行启动脚本
+export JAVA_HOME=/path/to/jdk17+   # 可选；未设置则用 PATH 里的 java
+./target/dist/run.sh               # Windows: run.bat
+
+# 命令行：java -jar 即可（manifest 已带依赖 classpath）
+java -jar target/dist/zyshpt-client.jar --help
+```
+
+> GUI 必须经 `run.sh`/`run.bat`（或手动 `--module-path` 指向 `javafx/` 目录）启动，
+> 因为 JavaFX 必须放在 module-path 上，普通 `java -jar` 无法启动 GUI。
+
+生成发行 zip：
+
+```bash
+cd target/dist && zip -r ../zyshpt-client-1.0.0-SNAPSHOT.zip .
+```
+
+可选：用 `jpackage` 打成原生安装包（macOS 示例，Windows/Linux 换 `--type msi`/`deb`）：
+
+```bash
+jpackage --name zyshpt-gateway --type dmg \
+    --input target/dist --main-jar zyshpt-client.jar \
+    --java-options '--module-path=$APPDIR/javafx' \
+    --java-options '--add-modules=javafx.controls,javafx.fxml' \
+    --java-options '-cp=$APPDIR/zyshpt-client.jar:$APPDIR/libs/*'
+```
+
 ## 国密用法
 
 ```java
